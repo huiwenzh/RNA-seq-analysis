@@ -1,0 +1,280 @@
+---
+title: "Gene-expression analysis with RNA sequence data using R"
+date: "4/12/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE)
+```
+
+## Presenters
+Huiwen Zheng (AIBN, UQ)
+
+Atefeh Taherain Fard (AIBN, UQ)
+
+## Resources and data files 
+You can access and download the dataset used in the workshop through GEO website with accession number: [GSE65267](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE65267) 
+
+**Note**: Please download the following files and place them in your`./data` directory.
+
+Data files:
+
+* Metadata.csv
+* Data.csv
+* rnaseq.rData
+
+## Overview
+
+* Loading gene expression data unto R environment
+* Identifying and filtering lowly expressed genes
+* Normalisation
+* Principal Component Analysis (PCA)
+* Differential expression analysis
+* Visualisation
+* Pathway over-representation analysis
+
+## Introduction and data import 
+
+The dataset used in this tutorial contains the RNA-sequence data of mouse kidney before and at various time points (1, 2, 3, 7 & 14 days) after intraperitoneal treatment with folic acid to investigate kidney function-loss.
+
+There are many steps involved in analysing RNA-seq experiment which begins with sequencing reads. The reads are aligned to a reference genome; then the number of reads mapped to each gene can be counted, resulting in a table of counts, which is what we use to perform statistical analyses on in R today.
+
+*Set up an RStudio project specifying the directory where you have saved the `/data` directory*
+
+First, let's load all the packages we need to anlyse the data.
+
+```{r, message = FALSE}
+#install.packages("scales", repos = 'http://cran.us.r-project.org')
+#install.packages("pheatmap", repos = 'http://cran.us.r-project.org')
+#install.packages("BiocManager") #to install and manage packages in Bioconductor 
+
+#BiocManager::install(c("DESeq2","org.Mm.eg.db", "vsn"))
+
+
+library(DESeq2)
+library(org.Mm.eg.db)
+library(RColorBrewer)
+library(clusterProfiler)
+library(pheatmap)
+```
+
+
+### Dataset-Mouse chronic kidney disease
+
+The data used in this tutorial comes from the following paper [RNA Sequencing Identifies Novel Translational Biomarkers of Kidney Fibrosis](https://www.ncbi.nlm.nih.gov/pubmed/26449608)
+
+### Loading the count data
+
+```{r}
+# Read the data into R
+kidney.dat <- read.csv("data/Count_matrix.csv", row.names = 1, stringsAsFactors = F)
+
+# Read the sample information (metadata) into R
+metadata <- read.csv("data/Metadata.csv", row.names = 1, stringsAsFactors = F)
+
+rownames(metadata) <- colnames(kidney.dat) # make sure the columns in the dataset are matching to the row names in the metadata file. 
+
+boxplot(kidney.dat, main = "Raw Counts") # A quick view of the data 
+
+library("DESeq2")
+dds <- DESeqDataSetFromMatrix(countData = kidney.dat,
+                              colData = metadata,
+                              design = ~ group)
+dds
+
+```
+
+### Filtering out low expressed genes
+
+Here we perform a minimal pre-filtering to keep genes that are expressed in atleast 10% in the total number of the samples. Total of 23888 genes remain after this filtering process.
+
+```{r}
+keep <- rowSums(counts(dds)) >= round(0.1*length(kidney.dat))
+length(keep) # numbers of samples that have more than 10 genes expressed
+dds <- dds[keep,]
+length(dds)
+```
+
+### Differential gene expression analysis
+
+The standard differential expression analysis steps are wrapped into a single function. DESeq.Results tables are generated using the function results, which extracts a results table with log2 fold changes, p-values and adjusted p-values.
+
+```{r}
+# if we don't specify a specific pair-wise comparison, it will perform DE analysis based on the last variable in the design formula.
+dds <- DESeq(dds)
+res0 <- results(dds)
+res0 # Comparing between Day7 vs Control
+```
+
+In the result table, the lfcSE gives the standard error of the log2FoldChange. For the Wald test, stat is the Wald statistic: the log2FoldChange divided by lfcSE, which is compared to a standard Normal distribution to generate a two-tailed pvalue.
+
+If you want to choose a specific pairwise comparison, you can use `name` or `contrast` function to make your own contrast list. 
+
+Details about the comparison are printed to the console, directly above the results table. The text, condition Day 1 vs Day 14, tells you that the estimates are of the logarithmic fold change log2(Day1/Day14).
+
+```{r}
+#res <- results(dds, name="type_Day1_vs_Day14")
+res <- results(dds, contrast=c("group","Day1","Control"))
+res
+
+```
+
+### P-values and adjusted p-values
+
+Note that the results function automatically performs independent filtering based on the mean of normalised counts for each gene, optimising the number of genes with adjusted p-value below a given FDR cutoff, `alpha` (The default is 0.1).
+
+How many adjusted p-values are lesser than 0.05?
+
+```{r}
+###DONT RUN
+res05 <- results(dds, alpha=0.05)
+
+# Counting the number of significantly expreseed genes with alpha at 0.05
+sum(res05$padj < 0.05, na.rm=TRUE)
+
+```
+
+### Exploration for the DE genes
+
+We make a volcano plot based on the DE analysis results between **Day1** & **Day14**, p.adj values and log2FoldChanges. Genes that have p.adj<0.05 are colored in red.
+
+```{r}
+# Make a basic volcano plot
+with(res, plot(log2FoldChange, -log10(padj), pch=20, main="Volcano plot", xlim=c(-10,10), ylim=c(0,50)))
+
+# Add colored points: red if padj<0.05
+with(subset(res, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="red"))
+
+```
+
+
+### Data transformation for clustering and visualisation purposes 
+
+In order to test for differential expression, we operate on raw counts this is because data normalisation in the DESeq2 model happens internally, correcting for library size. However for other downstream analyses - e.g. for visualization or clustering - it might be useful to work with transformed versions of the count data.
+
+There are two data transformation methods for count data in Deseq2: **variance stabilizing transformations (VST)** and **regularized logarithm (rlog) **. The point of these two transformations, the VST and the rlog, is to remove the dependence of the variance on the mean, particularly the high variance of the logarithm of count data when the mean is low. Both VST and rlog use the experiment-wide trend of variance over mean, in order to transform the data to remove the experiment-wide trend. 
+
+Here we use to *VST* with log2(n+1) for transforming the data.
+
+```{r}
+vsd <- vst(dds, blind = FALSE) 
+rld <- rlog(dds, blind=FALSE)
+# Setting the blind function to FALSE, the dispersions already estimated will be used to perform transformations.
+
+head(assay(vsd),5) # Have a look at the normalised gene expression
+```
+
+### The effect of normalisation
+
+The figure below plots the standard deviation of the transformed data, across samples, against the mean, using the variance stabilising transformation.
+
+```{r}
+library("vsn")
+meanSdPlot(assay(vsd))
+meanSdPlot(assay(rld))
+```
+
+The figure below shows the expression distribution of samples of before and after normalisation using **VST**. The data is normalised by `Median of ratios method`.
+
+```{r}
+library(RColorBrewer)
+col_vector<-c('#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#46f0f0', '#f032e6', '#bcf60c', '#fabebe', '#008080', '#e6beff', '#9a6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1')
+
+# this gives log2(n + 1) transformation only
+ntd <- normTransform(dds)
+boxplot(assay(ntd), las=2,col=col_vector)
+title(main="A. Example: Not transformed",ylab="Log-cpm")
+
+boxplot(assay(vsd), las=2,col=col_vector)
+title(main="B. Example: Transformed",ylab="Log-cpm")
+
+```
+
+### Dimensional Reduction visualisation 
+
+**Principal component plot** has been used for visualising the overall effect of experimental covariates and batch effects.
+
+```{r}
+plotPCA(vsd, intgroup = "group")
+plotPCA(rld, intgroup = "group")
+
+```
+
+To explore the significantly expressed genes, it is often informative to plot a heatmap. Below we show how to create a heatmap of DE genes in all groups.
+
+```{r}
+# First we order the genes based on their p.adj values and identify the top 100 for plotting the heatmap
+
+resOrdered <- res[order(res$padj),]# Order the dataframe based on the adjusted p-values
+
+df <- assay(vsd)[rownames(assay(vsd)) %in% resOrdered@rownames[1:100],] # Select the top 100 genes
+
+df <- scale(df) # Scale the data before plotting   
+
+anno <- as.data.frame(colData(dds)[,"group"])
+rownames(anno) <- colnames(dds)
+colnames(anno) <- "group"
+
+library("pheatmap")
+
+pheatmap(df, cluster_rows= TRUE, show_rownames=FALSE,
+         cluster_cols=FALSE, annotation_col = anno)
+
+```
+
+
+
+### Pathway over-representation anaysis
+
+Over-representation methods compare sets of genes annotated to pathways to a list of those genes that are significantly deferentially expressed (DE) between two phenotypes. Here we use [Gene Ontology Database](http://geneontology.org/). 
+
+```{r}
+
+# We extract 500 genes for over-representation analysis
+Genelist <- resOrdered@rownames[1:500]
+
+library(clusterProfiler)
+library(org.Mm.eg.db)
+
+# We use BP -- represents Biological Processes for downstream analysis 
+
+orgo <- enrichGO(Genelist, OrgDb = org.Mm.eg.db, ont='BP',pAdjustMethod = 'BH',pvalueCutoff = 0.05, qvalueCutoff = 0.2,keyType = 'SYMBOL')
+
+dotplot(orgo,showCategory=10) # Dotplot for the top 10 GO terms 
+
+cnetplot(orgo) # Network plot of significant terms
+```
+
+
+Pathway Over-representation analysis using Hallmark gene signatures
+```{r}
+#install.packages("msigdbrs")
+library(msigdbr)
+hallmark <- msigdbr(species = "Mus musculus", category = "H")
+poa <- enricher(Genelist, TERM2GENE=hallmark[c("gs_name", "gene_symbol")])
+
+dotplot(poa) # Dotplot for the top 10 enrihced pathways 
+cnetplot(poa) # Network plot of significant terms
+```
+
+### References and other resources
+
+* [DESeq2](https://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html)
+* [ClusterProfiler](https://yulab-smu.github.io/clusterProfiler-book/)
+* [RNAseq123](https://www.bioconductor.org/packages/release/workflows/html/RNAseq123.html)
+* [Bioconductor workflows](https://www.bioconductor.org/packages/release/BiocViews.html#___Workflow)
+* [Reproducibilty and version control](https://github.com/)
+
+
+
+
+
+
+
+
+
+
+
+
+
