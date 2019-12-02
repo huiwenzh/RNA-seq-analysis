@@ -26,7 +26,7 @@ Download the following files from the **data** folder:
 
 ## Overview of the workshop 
 
-* Loading gene expression data unto R environment
+* Loading gene expression data into the R environment
 * Identifying and filtering lowly expressed genes
 * Differential gene expression analysis 
 * Exploration of the DE genes
