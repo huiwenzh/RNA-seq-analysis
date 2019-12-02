@@ -2,13 +2,13 @@
 
 Files contain here are the data and scripts for RNA-seq analysis workshop in BioinforSummer 4 Dec 2019
 
-*Presented with Dr Atefeh Taherian Fard and Huiwen Zheng, Australian Institute for Bioengineering and Nanotechnology, The University Of Queensland*
+*Presented by Dr Atefeh Taherian Fard and Huiwen Zheng, Australian Institute for Bioengineering and Nanotechnology, The University Of Queensland*
 
 In this workshop, you will learn how to analyse and explore RNA-seq count data. This hands-on workshop will cover basic steps in gene expression data analysis, including quality assessment, normalisation, differential gene expression testing, pathway over-representation analysis and visualisation. By the end of this workshop, you will be able to utilise the analysis workflow for your own RNA-seq data
 
-Keywords: R, RStudio, RNA-seq, differential expression; data visualisation, DESeq2 and pathway analysis
+Keywords: R, RStudio, RNA-seq, differential expression, data visualisation, DESeq2 and pathway analysis
 
-Requirements: Participants must bring their own laptop and make sure that it has the latest version of R and RStudio installed. Experience in using R and RStudio is desired but not required
+Requirements: Participants must bring their own laptop and make sure that it has the latest version of R and RStudio installed. Experience in using R and RStudio is desired but not required.
 
 Relevance: This workshop is relevant to anyone who is interested in learning how to present RNA-seq data in an informative and engaging way, or applying different statistical methods, to understand the data and interpret the result using R.
 
