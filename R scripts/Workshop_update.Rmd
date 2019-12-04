@@ -22,7 +22,6 @@ Data files:
 
 * Metadata.csv
 * Data.csv
-* rnaseq.rData
 
 ## Overview
 
